@@ -1,0 +1,134 @@
+﻿diff --git java/org/l2jmobius/gameserver/entity/actor/Creature.java java/org/l2jmobius/gameserver/entity/actor/Creature.java
+index 7be0ee6..a013ddc 100644
+--- java/org/l2jmobius/gameserver/entity/actor/Creature.java
++++ java/org/l2jmobius/gameserver/entity/actor/Creature.java
+@@ -2989,3 +2989,3 @@
+ 					case MAX_HP:
+ 					{
+-						info.addComponentType(UserInfoType.MAX_HPCPMP);
++						info.addComponentType(UserInfoType.MAX_HPCPMP, UserInfoType.CURRENT_HPMPCP_EXP_SP);
+ 						break;
+diff --git java/org/l2jmobius/gameserver/entity/actor/stat/CreatureStat.java java/org/l2jmobius/gameserver/entity/actor/stat/CreatureStat.java
+index 61e2dae..216aa4c 100644
+--- java/org/l2jmobius/gameserver/entity/actor/stat/CreatureStat.java
++++ java/org/l2jmobius/gameserver/entity/actor/stat/CreatureStat.java
+@@ -915,6 +915,14 @@
+ 	public double getAddValue(Stat stat, double defaultValue)
+ 	{
+-		final Double val = _statsAdd.get(stat);
+-		return val != null ? val.doubleValue() : defaultValue;
++		_lock.readLock().lock();
++		try
++		{
++			final Double val = _statsAdd.get(stat);
++			return val != null ? val.doubleValue() : defaultValue;
++		}
++		finally
++		{
++			_lock.readLock().unlock();
++		}
+ 	}
+ 	
+@@ -967,6 +975,14 @@
+ 	public double getMulValue(Stat stat, double defaultValue)
+ 	{
+-		final Double val = _statsMul.get(stat);
+-		return val != null ? val.doubleValue() : defaultValue;
++		_lock.readLock().lock();
++		try
++		{
++			final Double val = _statsMul.get(stat);
++			return val != null ? val.doubleValue() : defaultValue;
++		}
++		finally
++		{
++			_lock.readLock().unlock();
++		}
+ 	}
+ 	
+@@ -979,5 +995,18 @@
+ 	{
+ 		final Double val = _fixedValue.get(stat);
+-		return val != null ? val.doubleValue() : stat.finalize(_creature, OptionalDouble.of(baseValue));
++		if (val != null)
++		{
++			return val.doubleValue();
++		}
++		
++		_lock.readLock().lock();
++		try
++		{
++			return stat.finalize(_creature, OptionalDouble.of(baseValue));
++		}
++		finally
++		{
++			_lock.readLock().unlock();
++		}
+ 	}
+ 	
+@@ -989,5 +1018,18 @@
+ 	{
+ 		final Double val = _fixedValue.get(stat);
+-		return val != null ? val.doubleValue() : stat.finalize(_creature, OptionalDouble.empty());
++		if (val != null)
++		{
++			return val.doubleValue();
++		}
++		
++		_lock.readLock().lock();
++		try
++		{
++			return stat.finalize(_creature, OptionalDouble.empty());
++		}
++		finally
++		{
++			_lock.readLock().unlock();
++		}
+ 	}
+ 	
+@@ -1185,5 +1227,5 @@
+ 							statAddValue = _statsAdd.getOrDefault(stat, statAddResetValue);
+ 							statMulValue = _statsMul.getOrDefault(stat, statMulResetValue);
+-							if (addsValue.equals(statAddResetValue) || mulsValue.equals(statMulResetValue) || !addsValue.equals(statAddValue) || !mulsValue.equals(statMulValue))
++							if (!addsValue.equals(statAddValue) || !mulsValue.equals(statMulValue))
+ 							{
+ 								changed.add(stat);
+@@ -1208,5 +1250,12 @@
+ 				}
+ 				
+-				_recalculateStatsTask = null;
++				synchronized (this)
++				{
++					_recalculateStatsTask = null;
++					if (_broadcast.get())
++					{
++						recalculateStats(true);
++					}
++				}
+ 			}, 50);
+ 		}
+diff --git java/org/l2jmobius/gameserver/entity/actor/stat/PlayerStat.java java/org/l2jmobius/gameserver/entity/actor/stat/PlayerStat.java
+index f5e46a7..f6c2f33 100644
+--- java/org/l2jmobius/gameserver/entity/actor/stat/PlayerStat.java
++++ java/org/l2jmobius/gameserver/entity/actor/stat/PlayerStat.java
+@@ -75,5 +75,4 @@
+ 	private boolean _cloakSlot = false;
+ 	private int _vitalityPoints = 0;
+-	private ScheduledFuture<?> _onRecalculateStatsTask;
+ 	
+ 	public PlayerStat(Player player)
+@@ -802,13 +801,5 @@
+ 	protected void onRecalculateStats(boolean broadcast)
+ 	{
+-		if (_onRecalculateStatsTask == null)
+-		{
+-			_onRecalculateStatsTask = ThreadPool.schedule(() ->
+-			{
+-				super.onRecalculateStats(broadcast);
+-				
+-				_onRecalculateStatsTask = null;
+-			}, 50);
+-		}
++		super.onRecalculateStats(broadcast);
+ 		
+ 		final Player player = getActiveChar();
